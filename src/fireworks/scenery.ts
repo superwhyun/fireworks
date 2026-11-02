@@ -316,7 +316,7 @@ export function createCity(glowTex: Texture): Scenery {
   const group = new Group()
   const disp: Disposable[] = []
   const rng = new Rng(5150)
-  const tex = makeWindowTexture(23, 0.42)
+  const tex = makeWindowTexture(23, 0.2)
   disp.push(tex)
 
   // apartment complexes all around the park: rows of slab towers
@@ -359,7 +359,7 @@ export function createCity(glowTex: Texture): Scenery {
       rot: ang + Math.PI / 2,
     })
   }
-  const { mesh, roofs } = buildingMesh(boxes, tex, rng, 0.75)
+  const { mesh, roofs } = buildingMesh(boxes, tex, rng, 0.55)
   disp.push(mesh.geometry, mesh.material as MeshBasicMaterial)
   group.add(mesh)
 

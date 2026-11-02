@@ -11,6 +11,9 @@ import type { CameraPreset, MusicMode } from './fireworks/director'
 import { PALETTES, type PatternId } from './fireworks/patterns'
 import { SoundEngine } from './fireworks/sound'
 import type { SceneId } from './fireworks/scenery'
+import { loadPrefs, savePrefs } from './prefs'
+
+const initialPrefs = loadPrefs()
 import { useDirector, type DirectorHandle } from './hooks/useDirector'
 
 const AUDIO_EXT = /\.(mp3|wav|m4a|mp4|ogg|oga|flac|aac|opus|weba|webm|aiff?)$/i
@@ -23,11 +26,11 @@ export default function App() {
   const objectUrlRef = useRef<string | null>(null)
   const soundRef = useRef<SoundEngine | null>(null)
 
-  const [pattern, setPattern] = useState<PatternId>('random')
-  const [paletteId, setPaletteId] = useState('random')
-  const [intensity, setIntensity] = useState(0.7)
-  const [autoFire, setAutoFire] = useState(true)
-  const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('high')
+  const [pattern, setPattern] = useState<PatternId>(initialPrefs.pattern)
+  const [paletteId, setPaletteId] = useState(initialPrefs.paletteId)
+  const [intensity, setIntensity] = useState(initialPrefs.intensity)
+  const [autoFire, setAutoFire] = useState(initialPrefs.autoFire)
+  const [quality, setQuality] = useState<'low' | 'medium' | 'high'>(initialPrefs.quality)
   const [musicMode, setMusicMode] = useState<MusicMode>('off')
   const [track, setTrack] = useState<TrackInfo | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
@@ -37,13 +40,13 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [musicLevel, setMusicLevel] = useState(0)
-  const [audioEnabled, setAudioEnabled] = useState(true)
+  const [audioEnabled, setAudioEnabled] = useState(initialPrefs.audioEnabled)
   const [ready, setReady] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [uiHidden, setUiHidden] = useState(false)
   const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>('front')
-  const [autoRotate, setAutoRotate] = useState(false)
-  const [scene, setScene] = useState<SceneId>('river')
+  const [autoRotate, setAutoRotate] = useState(initialPrefs.autoRotate)
+  const [scene, setScene] = useState<SceneId>(initialPrefs.scene)
 
   const sound = useMemo(() => {
     if (!soundRef.current) soundRef.current = new SoundEngine()
@@ -61,6 +64,9 @@ export default function App() {
   )
   const handleReady = useCallback((handle: DirectorHandle) => {
     directorHandle.current = handle
+    // restore the remembered scene / camera behaviour
+    handle.setScene(initialPrefs.scene)
+    handle.setAutoRotate(initialPrefs.autoRotate)
   }, [])
 
   const handleError = useCallback((message: string) => {
@@ -76,6 +82,14 @@ export default function App() {
     onReady: handleReady,
     onError: handleError,
   })
+
+  useEffect(() => {
+    sound.setEnabled(initialPrefs.audioEnabled)
+  }, [sound])
+
+  useEffect(() => {
+    savePrefs({ scene, pattern, paletteId, intensity, autoFire, quality, audioEnabled, autoRotate })
+  }, [scene, pattern, paletteId, intensity, autoFire, quality, audioEnabled, autoRotate])
 
   const fire = useCallback(() => {
     void sound.resume()
