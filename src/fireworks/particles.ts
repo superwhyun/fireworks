@@ -36,8 +36,13 @@ void main() {
     // reflection on the water surface: flip, ripple, dim with height
     float h = p.y;
     p.y = -h;
-    p.x += sin(h * 0.09 + uTime * 1.7 + p.z * 0.05) * (1.0 + h * 0.025);
-    a *= 0.32 * clamp(1.0 - h / 320.0, 0.0, 1.0);
+    // waves break the mirror image into wobbling, flickering fragments
+    float w1 = sin(p.x * 0.31 + uTime * 2.9 + h * 0.21);
+    float w2 = sin(p.z * 0.47 - uTime * 2.2 + h * 0.13 + p.x * 0.05);
+    p.x += (w1 * 1.6 + sin(h * 0.09 + uTime * 1.7) ) * (1.0 + h * 0.03);
+    p.y += w2 * (0.5 + h * 0.06);
+    float shimmer = 0.25 + 0.75 * pow(0.5 + 0.5 * w1 * w2, 2.0);
+    a *= 0.42 * shimmer * clamp(1.0 - h / 320.0, 0.0, 1.0);
   }
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -80,8 +85,11 @@ void main() {
   if (uMirror > 0.5) {
     float h = p.y;
     p.y = -h;
-    p.x += sin(h * 0.09 + uTime * 1.7 + p.z * 0.05) * (1.0 + h * 0.025);
-    c *= 0.3 * clamp(1.0 - h / 320.0, 0.0, 1.0);
+    float w1 = sin(p.x * 0.31 + uTime * 2.9 + h * 0.21);
+    float w2 = sin(p.z * 0.47 - uTime * 2.2 + h * 0.13 + p.x * 0.05);
+    p.x += (w1 * 1.6 + sin(h * 0.09 + uTime * 1.7)) * (1.0 + h * 0.03);
+    p.y += w2 * (0.5 + h * 0.06);
+    c *= 0.35 * (0.25 + 0.75 * pow(0.5 + 0.5 * w1 * w2, 2.0)) * clamp(1.0 - h / 320.0, 0.0, 1.0);
   }
   vColor = c;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);

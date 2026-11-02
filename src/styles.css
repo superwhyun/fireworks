@@ -974,6 +974,22 @@ input:focus-visible {
   transform: scale(0.98);
 }
 
+/* ---------- Scene selector ---------- */
+
+.scene-block {
+  margin-bottom: 4px;
+}
+
+.scene-segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.scene-segmented .segment {
+  padding: 7px 0;
+  font-size: 12px;
+}
+
 /* ---------- Camera dock ---------- */
 
 .camera-dock {

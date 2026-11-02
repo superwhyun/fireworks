@@ -4,11 +4,13 @@ import { ControlDeck, CollapseHandle } from './components/ControlDeck'
 import { FireworksCanvas } from './components/FireworksCanvas'
 import { MusicPanel, type TrackInfo } from './components/MusicPanel'
 import { PatternSelector } from './components/PatternSelector'
+import { SceneSelector } from './components/SceneSelector'
 import { StatsBar } from './components/StatsBar'
 import { CloseIcon } from './components/icons'
 import type { CameraPreset, MusicMode } from './fireworks/director'
 import { PALETTES, type PatternId } from './fireworks/patterns'
 import { SoundEngine } from './fireworks/sound'
+import type { SceneId } from './fireworks/scenery'
 import { useDirector, type DirectorHandle } from './hooks/useDirector'
 
 const AUDIO_EXT = /\.(mp3|wav|m4a|mp4|ogg|oga|flac|aac|opus|weba|webm|aiff?)$/i
@@ -41,6 +43,7 @@ export default function App() {
   const [uiHidden, setUiHidden] = useState(false)
   const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>('front')
   const [autoRotate, setAutoRotate] = useState(false)
+  const [scene, setScene] = useState<SceneId>('river')
 
   const sound = useMemo(() => {
     if (!soundRef.current) soundRef.current = new SoundEngine()
@@ -87,6 +90,11 @@ export default function App() {
   const changeCamera = useCallback((p: CameraPreset) => {
     setCameraPreset(p)
     directorHandle.current?.setCamera(p)
+  }, [])
+
+  const changeScene = useCallback((id: SceneId) => {
+    setScene(id)
+    directorHandle.current?.setScene(id)
   }, [])
 
   const changeAutoRotate = useCallback((on: boolean) => {
@@ -316,6 +324,8 @@ export default function App() {
             onToggleSound={() => setAudioEnabled((v) => !v)}
             onClearTrack={clearTrack}
           />
+
+          <SceneSelector scene={scene} onScene={changeScene} />
 
           <PatternSelector
             pattern={pattern}

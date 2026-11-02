@@ -2,6 +2,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { FireworksEngine, type BurstKind, type Quality, type TailStyle } from './engine'
 import { createEnvironment, type Environment } from './environment'
+import type { SceneId } from './scenery'
 import { createGlowTexture } from './particles'
 import { FOV, createStage, type Stage } from './stage'
 import { Rng } from './rng'
@@ -226,6 +227,7 @@ export class Director {
       this.opts.onSplitSound?.(Math.min(1, this.engine.splitCount / 40))
       this.engine.splitCount = 0
     }
+    this.engine.fillLights(this.environment.lightPos, this.environment.lightCol)
     this.environment.update(this.elapsed, this.stage.camera.position, this.engine.skyLight)
   }
 
@@ -294,6 +296,11 @@ export class Director {
       t: 0,
       dur: 1.6,
     }
+  }
+
+  setScene(id: SceneId): void {
+    this.environment.setScene(id)
+    this.engine.setReflections(this.environment.reflections)
   }
 
   setAutoRotate(on: boolean): void {
@@ -440,7 +447,7 @@ export class Director {
       delay,
       burn: HANGING.has(resolved) ? this.rng.range(1, 1.35) : this.rng.range(0.7, 1.35),
       snap: this.rng.range(0.8, 1.3),
-      whistle: resolved !== 'salute' && this.rng.next() < 0.22,
+      whistle: false,
     })
   }
 

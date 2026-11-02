@@ -128,6 +128,8 @@ export class FireworksEngine {
   onLaunch: ((e: LaunchEvent) => void) | null = null
   /** current sky illumination from bursts (linear rgb, unbounded) */
   readonly skyLight = new Color(0, 0, 0)
+  /** recent bursts acting as point lights (for water glitter) */
+  private lights: { x: number; y: number; z: number; r: number; g: number; b: number; i: number; decay: number }[] = []
 
   private pool: ParticlePool
   private glow: SpriteLayer
@@ -151,6 +153,13 @@ export class FireworksEngine {
     this.group.add(this.pool.lines)
     this.group.add(this.pool.points)
     this.setQuality(quality)
+  }
+
+  /** show/hide the mirrored copies used for water reflections */
+  setReflections(on: boolean): void {
+    this.pool.mirror.visible = on
+    this.pool.lineMirror.visible = on
+    if (this.glow.mirror) this.glow.mirror.visible = on
   }
 
   setQuality(q: Quality): void {
@@ -178,6 +187,7 @@ export class FireworksEngine {
     this.glow.clear()
     this.smoke.clear()
     this.skyLight.setRGB(0, 0, 0)
+    this.lights.length = 0
     commitPool(this.pool)
   }
 
@@ -281,6 +291,12 @@ export class FireworksEngine {
     this.smoke.update(dt)
     const k = Math.exp(-dt * 3.2)
     this.skyLight.multiplyScalar(k)
+    let lw = 0
+    for (const l of this.lights) {
+      l.i *= Math.exp(-dt * l.decay)
+      if (l.i > 0.02) this.lights[lw++] = l
+    }
+    this.lights.length = lw
     this.pool.setTime(t)
     commitPool(this.pool)
   }
@@ -614,7 +630,29 @@ export class FireworksEngine {
     }
   }
 
+  /**
+   * Write the strongest current lights into uniform arrays.
+   * pos: [x, y, z, intensity] * n, col: [r, g, b] * n
+   */
+  fillLights(pos: Float32Array, col: Float32Array): void {
+    const n = pos.length / 4
+    this.lights.sort((a, b) => b.i - a.i)
+    for (let k = 0; k < n; k++) {
+      const l = this.lights[k]
+      pos[k * 4] = l ? l.x : 0
+      pos[k * 4 + 1] = l ? l.y : 0
+      pos[k * 4 + 2] = l ? l.z : 0
+      pos[k * 4 + 3] = l ? l.i : 0
+      col[k * 3] = l ? l.r : 0
+      col[k * 3 + 1] = l ? l.g : 0
+      col[k * 3 + 2] = l ? l.b : 0
+    }
+  }
+
   private flash(x: number, y: number, z: number, c: RGB, R: number, amount: number): void {
+    if (this.lights.length >= 24) this.lights.sort((a, b) => b.i - a.i).pop()
+    // bright at the break, then the burning stars keep lighting the water a while
+    this.lights.push({ x, y, z, r: c.r, g: c.g, b: c.b, i: Math.min(1.6, amount), decay: 0.9 })
     const w = mixRGB(c, WHITE_RGB, 0.6)
     this.glow.add({ x, y, z, color: w, size: R * 0.7, intensity: 0.9 * amount, life: 0.16 })
     this.glow.add({ x, y, z, color: c, size: R * 2.6, intensity: 0.09 * amount, life: 1.2 })

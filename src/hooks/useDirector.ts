@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Director, type CameraPreset, type DirectorSettings, type MusicMode } from '../fireworks/director'
 import type { SoundEngine } from '../fireworks/sound'
+import type { SceneId } from '../fireworks/scenery'
 
 const EMPTY_STATS = { fps: 0, particles: 0, shells: 0, bursts: 0, level: 0 }
 type Stats = typeof EMPTY_STATS
@@ -11,6 +12,7 @@ export interface DirectorHandle {
   finale: () => void
   setCamera: (preset: CameraPreset) => void
   setAutoRotate: (on: boolean) => void
+  setScene: (id: SceneId) => void
 }
 
 interface UseDirectorArgs {
@@ -92,6 +94,7 @@ export function useDirector({
       finale: () => director.finale(),
       setCamera: (p) => director.setCameraPreset(p),
       setAutoRotate: (on) => director.setAutoRotate(on),
+      setScene: (id) => director.setScene(id),
     })
     if (import.meta.env.DEV) {
       ;(window as unknown as { __pyro?: Director }).__pyro = director

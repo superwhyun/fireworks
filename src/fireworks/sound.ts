@@ -330,7 +330,7 @@ export class SoundEngine {
 
   // ------------------------------------------------------------ public
 
-  /** mortar lift: muffled thump; some shells carry a whistle (noisy shriek) */
+  /** mortar lift: muffled thump + faint hiss of the rising shell */
   playLaunch(cue: { fuse: number; whistle: boolean; pan: number; gain: number; delay: number }): void {
     if (!this.enabled || !this.ctx) return
     const ctx = this.ctx
@@ -352,33 +352,8 @@ export class SoundEngine {
     src.connect(tube).connect(g).connect(out)
     src.start(when)
 
-    if (cue.whistle) {
-      // a real whistle is air resonating in a tube: narrow-band noise, not a tone
-      const n = this.noise(when + 0.05, cue.fuse)
-      if (!n) return
-      const f0 = this.rng.range(1600, 2600)
-      const bp1 = ctx.createBiquadFilter()
-      bp1.type = 'bandpass'
-      bp1.Q.value = 35
-      bp1.frequency.setValueAtTime(f0 * 0.6, when)
-      bp1.frequency.exponentialRampToValueAtTime(f0, when + 0.4)
-      bp1.frequency.linearRampToValueAtTime(f0 * 1.08, when + cue.fuse)
-      const bp2 = ctx.createBiquadFilter()
-      bp2.type = 'bandpass'
-      bp2.Q.value = 20
-      bp2.frequency.setValueAtTime(f0 * 0.6, when)
-      bp2.frequency.exponentialRampToValueAtTime(f0, when + 0.4)
-      bp2.frequency.linearRampToValueAtTime(f0 * 1.08, when + cue.fuse)
-      const wg = ctx.createGain()
-      wg.gain.setValueAtTime(0, when)
-      wg.gain.linearRampToValueAtTime(1.6 * cue.gain, when + 0.2)
-      wg.gain.setValueAtTime(1.6 * cue.gain, when + cue.fuse * 0.8)
-      wg.gain.linearRampToValueAtTime(0, when + cue.fuse)
-      n.connect(bp1).connect(bp2).connect(wg).connect(out)
-    } else {
-      // burning lift trail: faint rising hiss
-      this.sizzle(when + 0.05, cue.fuse * 0.8, 0.02 * cue.gain, cue.pan, 3000, distance)
-    }
+    // burning lift trail: faint rising hiss (no whistle — it sounded artificial)
+    this.sizzle(when + 0.05, cue.fuse * 0.8, 0.02 * cue.gain, cue.pan, 3000, distance)
   }
 
   playBurst(cue: SoundCue): void {
