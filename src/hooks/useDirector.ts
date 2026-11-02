@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Director, type DirectorSettings, type MusicMode } from '../fireworks/director'
+import { Director, type CameraPreset, type DirectorSettings, type MusicMode } from '../fireworks/director'
 import type { SoundEngine } from '../fireworks/sound'
 
 const EMPTY_STATS = { fps: 0, particles: 0, shells: 0, bursts: 0, level: 0 }
@@ -8,6 +8,9 @@ type Stats = typeof EMPTY_STATS
 export interface DirectorHandle {
   fire: () => void
   clear: () => void
+  finale: () => void
+  setCamera: (preset: CameraPreset) => void
+  setAutoRotate: (on: boolean) => void
 }
 
 interface UseDirectorArgs {
@@ -45,17 +48,35 @@ export function useDirector({
     if (!canvas) return
 
     let director: Director
+    let crackleAccum = 0
+    let lastCrackle = 0
+    let lastSplit = 0
     try {
       director = new Director({
         canvas,
         width: window.innerWidth,
         height: window.innerHeight,
         settings: settingsRef.current,
-        onBurstSound: (size) => {
-          sound.playBurst(size / 420)
+        onBurstSound: (cue) => sound.playBurst(cue),
+        onLaunchSound: (cue) => sound.playLaunch(cue),
+        onSplitSound: (amount) => {
+          const now = performance.now()
+          if (now - lastSplit > 90) {
+            lastSplit = now
+            sound.playSplit(amount)
+          }
         },
-        onLaunchSound: (fuse) => {
-          sound.playLaunch(fuse)
+        onCrackleSound: (amount) => {
+          crackleAccum += amount
+          const now = performance.now()
+          if (now - lastCrackle > 180) {
+            lastCrackle = now
+            sound.playCrackle(Math.min(1, crackleAccum))
+            crackleAccum = 0
+          }
+        },
+        onInteract: () => {
+          void sound.resume()
         },
       })
     } catch (err) {
@@ -68,7 +89,13 @@ export function useDirector({
     onReady({
       fire: () => director.fireManual(),
       clear: () => director.clear(),
+      finale: () => director.finale(),
+      setCamera: (p) => director.setCameraPreset(p),
+      setAutoRotate: (on) => director.setAutoRotate(on),
     })
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __pyro?: Director }).__pyro = director
+    }
 
     const onResize = () => director.resize(window.innerWidth, window.innerHeight)
     window.addEventListener('resize', onResize)
@@ -108,10 +135,6 @@ export function useDirector({
   useEffect(() => {
     directorRef.current?.setMusicMode(musicMode)
   }, [musicMode])
-
-  useEffect(() => {
-    directorRef.current?.clear()
-  }, [settings.quality])
 
   return stats
 }

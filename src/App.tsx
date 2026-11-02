@@ -1,11 +1,12 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CameraBar } from './components/CameraBar'
 import { ControlDeck, CollapseHandle } from './components/ControlDeck'
 import { FireworksCanvas } from './components/FireworksCanvas'
 import { MusicPanel, type TrackInfo } from './components/MusicPanel'
 import { PatternSelector } from './components/PatternSelector'
 import { StatsBar } from './components/StatsBar'
 import { CloseIcon } from './components/icons'
-import type { MusicMode } from './fireworks/director'
+import type { CameraPreset, MusicMode } from './fireworks/director'
 import { PALETTES, type PatternId } from './fireworks/patterns'
 import { SoundEngine } from './fireworks/sound'
 import { useDirector, type DirectorHandle } from './hooks/useDirector'
@@ -20,10 +21,10 @@ export default function App() {
   const objectUrlRef = useRef<string | null>(null)
   const soundRef = useRef<SoundEngine | null>(null)
 
-  const [pattern, setPattern] = useState<PatternId>('chrysanthemum')
-  const [paletteId, setPaletteId] = useState('ember')
-  const [intensity, setIntensity] = useState(0.62)
-  const [autoFire, setAutoFire] = useState(false)
+  const [pattern, setPattern] = useState<PatternId>('random')
+  const [paletteId, setPaletteId] = useState('random')
+  const [intensity, setIntensity] = useState(0.7)
+  const [autoFire, setAutoFire] = useState(true)
   const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('high')
   const [musicMode, setMusicMode] = useState<MusicMode>('off')
   const [track, setTrack] = useState<TrackInfo | null>(null)
@@ -37,6 +38,9 @@ export default function App() {
   const [audioEnabled, setAudioEnabled] = useState(true)
   const [ready, setReady] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [uiHidden, setUiHidden] = useState(false)
+  const [cameraPreset, setCameraPreset] = useState<CameraPreset | null>('front')
+  const [autoRotate, setAutoRotate] = useState(false)
 
   const sound = useMemo(() => {
     if (!soundRef.current) soundRef.current = new SoundEngine()
@@ -75,6 +79,26 @@ export default function App() {
     directorHandle.current?.fire()
   }, [sound])
 
+  const finale = useCallback(() => {
+    void sound.resume()
+    directorHandle.current?.finale()
+  }, [sound])
+
+  const changeCamera = useCallback((p: CameraPreset) => {
+    setCameraPreset(p)
+    directorHandle.current?.setCamera(p)
+  }, [])
+
+  const changeAutoRotate = useCallback((on: boolean) => {
+    setAutoRotate(on)
+    directorHandle.current?.setAutoRotate(on)
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void document.documentElement.requestFullscreen?.().catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
@@ -82,14 +106,39 @@ export default function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
         return
       }
+      if (e.ctrlKey || e.metaKey || e.altKey) return
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault()
         fire()
+        return
+      }
+      const presets: CameraPreset[] = ['front', 'close', 'low', 'aerial', 'side']
+      const n = Number(e.key)
+      if (n >= 1 && n <= presets.length) {
+        changeCamera(presets[n - 1])
+        return
+      }
+      switch (e.key.toLowerCase()) {
+        case 'f':
+          finale()
+          break
+        case 'h':
+          setUiHidden((v) => !v)
+          break
+        case 'r':
+          changeAutoRotate(!autoRotate)
+          break
+        case 'enter':
+          toggleFullscreen()
+          break
+        case 'escape':
+          setUiHidden(false)
+          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [fire])
+  }, [fire, finale, changeCamera, changeAutoRotate, autoRotate, toggleFullscreen])
 
   useEffect(() => {
     if (musicMode === 'off') {
@@ -193,7 +242,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${dragging ? ' is-dragging' : ''}`}
+      className={`app${dragging ? ' is-dragging' : ''}${uiHidden ? ' is-ui-hidden' : ''}`}
       onDragOver={(e) => {
         e.preventDefault()
         if (e.dataTransfer.types.includes('Files')) setDragging(true)
@@ -207,11 +256,7 @@ export default function App() {
         loadFile(e.dataTransfer.files?.[0] ?? null)
       }}
     >
-      <FireworksCanvas
-        canvasRef={canvasRef}
-        onPointerFire={fire}
-        onReadyChange={setReady}
-      />
+      <FireworksCanvas canvasRef={canvasRef} onReadyChange={setReady} />
 
       <header className="topbar">
         <div className="brand">
@@ -225,6 +270,23 @@ export default function App() {
         </div>
         <StatsBar {...stats} />
       </header>
+
+      <div className="camera-dock">
+        <CameraBar
+          preset={cameraPreset}
+          autoRotate={autoRotate}
+          onPreset={changeCamera}
+          onAutoRotate={changeAutoRotate}
+          onFullscreen={toggleFullscreen}
+          onHideUi={() => setUiHidden(true)}
+        />
+      </div>
+
+      {uiHidden ? (
+        <button type="button" className="ui-restore" onClick={() => setUiHidden(false)}>
+          UI 보기 (H)
+        </button>
+      ) : null}
 
       <aside className={`panel${collapsed ? ' is-collapsed' : ''}`} aria-label="불꽃 제어 패널">
         <CollapseHandle collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
@@ -273,6 +335,7 @@ export default function App() {
           onAutoFire={setAutoFire}
           onQuality={setQuality}
           onFire={fire}
+          onFinale={finale}
           onClear={() => directorHandle.current?.clear()}
         />
       </footer>
@@ -303,7 +366,6 @@ export default function App() {
         </div>
       ) : null}
 
-      <div className="grain" aria-hidden />
     </div>
   )
 }

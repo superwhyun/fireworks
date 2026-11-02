@@ -119,3 +119,47 @@ export function PaletteIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function CameraIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 8h3l1.5-2h7L17 8h3v10H4z" />
+      <circle cx="12" cy="13" r="3.2" />
+    </svg>
+  )
+}
+
+export function OrbitIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <ellipse cx="12" cy="12" rx="9" ry="4" />
+      <path d="M17.5 7.2 21 8.2l-1.2 3.3" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function ExpandIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  )
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </svg>
+  )
+}
+
+export function BurstIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 2v5M12 17v5M2 12h5M17 12h5M4.9 4.9l3.5 3.5M15.6 15.6l3.5 3.5M4.9 19.1l3.5-3.5M15.6 8.4l3.5-3.5" />
+    </svg>
+  )
+}

@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { ChevronIcon, GaugeIcon, ResetIcon, SparkIcon } from './icons'
+import { BurstIcon, ChevronIcon, GaugeIcon, ResetIcon, SparkIcon } from './icons'
 
 interface ControlDeckProps {
   intensity: number
@@ -9,6 +9,7 @@ interface ControlDeckProps {
   onAutoFire: (on: boolean) => void
   onQuality: (q: 'low' | 'medium' | 'high') => void
   onFire: () => void
+  onFinale: () => void
   onClear: () => void
 }
 
@@ -26,6 +27,7 @@ export const ControlDeck = memo(function ControlDeck({
   onAutoFire,
   onQuality,
   onFire,
+  onFinale,
   onClear,
 }: ControlDeckProps) {
   return (
@@ -74,7 +76,7 @@ export const ControlDeck = memo(function ControlDeck({
         </div>
 
         <div className="control control-row">
-          <span className="control-label">자동 발사</span>
+          <span className="control-label">자동 쇼</span>
           <button
             type="button"
             className={`toggle${autoFire ? ' is-on' : ''}`}
@@ -83,9 +85,14 @@ export const ControlDeck = memo(function ControlDeck({
             onClick={() => onAutoFire(!autoFire)}
           >
             <span className="toggle-thumb" aria-hidden />
-            <span className="visually-hidden">{autoFire ? '자동 발사 끄기' : '자동 발사 켜기'}</span>
+            <span className="visually-hidden">{autoFire ? '자동 쇼 끄기' : '자동 쇼 켜기'}</span>
           </button>
         </div>
+
+        <button type="button" className="ghost-button finale-button" onClick={onFinale} title="피날레 (F)">
+          <BurstIcon className="rail-icon" aria-hidden />
+          피날레
+        </button>
 
         <button type="button" className="ghost-button" onClick={onClear}>
           <ResetIcon className="rail-icon" aria-hidden />
