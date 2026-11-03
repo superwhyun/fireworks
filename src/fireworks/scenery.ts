@@ -1,7 +1,6 @@
 import {
   AdditiveBlending,
   BufferGeometry,
-  CanvasTexture,
   Color,
   DoubleSide,
   Float32BufferAttribute,
@@ -10,11 +9,20 @@ import {
   MeshBasicMaterial,
   Points,
   PointsMaterial,
-  RepeatWrapping,
-  SRGBColorSpace,
   Texture,
 } from 'three'
 import { Rng } from './rng'
+import {
+  buildAviationLights,
+  buildRidge,
+  buildRoadsurface,
+  buildSkyline,
+  buildTraffic,
+  type Building,
+  type Road,
+  type Skyline,
+  type Traffic,
+} from './urban'
 
 export type SceneId = 'river' | 'lake' | 'sea' | 'city'
 
@@ -40,6 +48,8 @@ export interface Scenery {
   water: WaterParams
   /** whether fireworks should be mirrored (water surface present) */
   reflections: boolean
+  /** light-pollution glow on the horizon (linear rgb) */
+  horizonGlow: [number, number, number]
   update(t: number, light: Color): void
   dispose(): void
 }
@@ -47,109 +57,6 @@ export interface Scenery {
 type Disposable = { dispose(): void }
 
 // ------------------------------------------------------------ helpers
-
-const FLOOR = 3 // world units per storey
-const BAY = 3.2 // world units per window bay
-const TILE_COLS = 32
-const TILE_ROWS = 64
-
-/** Apartment/office facade: grid of windows, some lit warm/cool, most dark. */
-function makeWindowTexture(seed: number, litRatio: number): Texture {
-  const cw = 16
-  const ch = 10
-  const canvas = document.createElement('canvas')
-  canvas.width = TILE_COLS * cw
-  canvas.height = TILE_ROWS * ch
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2D canvas context unavailable')
-  ctx.fillStyle = '#07080b'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  const rng = new Rng(seed)
-  for (let r = 0; r < TILE_ROWS; r++) {
-    // whole floors tend to be similar (people's habits / building use)
-    const floorBias = rng.range(-0.15, 0.15)
-    for (let c = 0; c < TILE_COLS; c++) {
-      const lit = rng.next() < litRatio + floorBias
-      if (lit) {
-        const k = rng.next()
-        const col =
-          k < 0.6
-            ? `rgb(${255},${rng.int(190, 225)},${rng.int(120, 165)})` // warm incandescent
-            : k < 0.85
-              ? `rgb(${rng.int(215, 240)},${rng.int(225, 245)},255)` // cool LED
-              : `rgb(${rng.int(120, 170)},${rng.int(160, 200)},255)` // TV glow
-        ctx.fillStyle = col
-        ctx.globalAlpha = rng.range(0.45, 1)
-      } else {
-        ctx.fillStyle = '#0e1016'
-        ctx.globalAlpha = 1
-      }
-      ctx.fillRect(c * cw + 3, r * ch + 2, cw - 6, ch - 4)
-    }
-  }
-  ctx.globalAlpha = 1
-  const tex = new CanvasTexture(canvas)
-  tex.wrapS = RepeatWrapping
-  tex.wrapT = RepeatWrapping
-  tex.colorSpace = SRGBColorSpace
-  tex.anisotropy = 4
-  return tex
-}
-
-interface Box {
-  x: number
-  z: number
-  w: number
-  d: number
-  h: number
-  rot: number
-}
-
-/** Merge many buildings into one mesh. Facade UVs are in "window units". */
-function buildingMesh(boxes: Box[], tex: Texture, rng: Rng, brightness: number): { mesh: Mesh; roofs: Box[] } {
-  const pos: number[] = []
-  const uv: number[] = []
-  const idx: number[] = []
-  let v = 0
-  for (const b of boxes) {
-    const c = Math.cos(b.rot)
-    const s = Math.sin(b.rot)
-    const hw = b.w / 2
-    const hd = b.d / 2
-    const corners: [number, number][] = [
-      [-hw, -hd],
-      [hw, -hd],
-      [hw, hd],
-      [-hw, hd],
-    ].map(([lx, lz]) => [b.x + lx * c - lz * s, b.z + lx * s + lz * c])
-    const u0 = Math.floor(rng.next() * TILE_COLS) / TILE_COLS
-    const v0 = Math.floor(rng.next() * TILE_ROWS) / TILE_ROWS
-    const vTop = b.h / FLOOR / TILE_ROWS
-    for (let f = 0; f < 4; f++) {
-      const [ax, az] = corners[f]
-      const [bx, bz] = corners[(f + 1) % 4]
-      const len = Math.hypot(bx - ax, bz - az)
-      const uLen = len / BAY / TILE_COLS
-      pos.push(ax, 0, az, bx, 0, bz, bx, b.h, bz, ax, b.h, az)
-      uv.push(u0, v0, u0 + uLen, v0, u0 + uLen, v0 + vTop, u0, v0 + vTop)
-      idx.push(v, v + 1, v + 2, v, v + 2, v + 3)
-      v += 4
-    }
-    // roof (dark: sample an unlit gap of the texture)
-    pos.push(corners[0][0], b.h, corners[0][1], corners[1][0], b.h, corners[1][1], corners[2][0], b.h, corners[2][1], corners[3][0], b.h, corners[3][1])
-    uv.push(0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001)
-    idx.push(v, v + 1, v + 2, v, v + 2, v + 3)
-    v += 4
-  }
-  const geo = new BufferGeometry()
-  geo.setAttribute('position', new Float32BufferAttribute(pos, 3))
-  geo.setAttribute('uv', new Float32BufferAttribute(uv, 2))
-  geo.setIndex(idx)
-  const mat = new MeshBasicMaterial({ map: tex, color: new Color(brightness, brightness, brightness), side: DoubleSide })
-  const mesh = new Mesh(geo, mat)
-  mesh.renderOrder = 1
-  return { mesh, roofs: boxes }
-}
 
 function glowPoints(
   pts: number[],
@@ -197,113 +104,242 @@ function groundMesh(
   return { mesh, mat }
 }
 
-function blinkers(
-  roofs: Box[],
-  chance: number,
+// ------------------------------------------------------------ urban helpers
+
+const APT_CROWNS = ['#d8dde6', '#9fb8dd', '#7f9fd0', '#b9a2d8', '#d9bf96', '#8fd9c4']
+const APT_SIGNS = ['#ffffff', '#ffffff', '#ff4a4a', '#7fd0ff', '#ffd36a']
+const OFFICE_CROWNS = ['#9cc8ff', '#ffffff', '#ffcf7a', '#7affd0', '#c9a8ff']
+const STRIPS = ['#ff4fd8', '#3fe0ff', '#ffd04a', '#ffffff', '#7dff9a']
+
+/** a Korean apartment complex: parallel slabs, same height, shared crown/sign */
+function aptComplex(
   rng: Rng,
-  tex: Texture,
-): { points: Points; mat: PointsMaterial; geo: BufferGeometry } {
-  const pts: number[] = []
-  const cols: number[] = []
-  for (const b of roofs) {
-    if (b.h > 60 && rng.next() < chance) {
-      pts.push(b.x, b.h + 1.5, b.z)
-      cols.push(1, 0.08, 0.04)
+  cx: number,
+  cz: number,
+  face: number,
+  rows: number,
+  perRow: number,
+  out: Building[],
+): void {
+  const h = FLOORS(rng.int(18, 35))
+  const crown = rng.next() < 0.6 ? rng.pick(APT_CROWNS) : null
+  const sign = rng.next() < 0.65 ? rng.pick(APT_SIGNS) : null
+  const w = rng.range(44, 60)
+  const gapX = w + rng.range(14, 22)
+  const gapZ = rng.range(42, 55)
+  const c = Math.cos(face)
+  const s = Math.sin(face)
+  for (let a = 0; a < rows; a++) {
+    for (let b = 0; b < perRow; b++) {
+      const lx = (b - (perRow - 1) / 2) * gapX + rng.range(-3, 3)
+      const lz = (a - (rows - 1) / 2) * gapZ
+      out.push({
+        x: cx + lx * c - lz * s,
+        z: cz + lx * s + lz * c,
+        w: w + rng.range(-4, 4),
+        d: rng.range(12, 15),
+        h: h + FLOORS(rng.int(-2, 2)),
+        rot: face,
+        kind: 'apt',
+        crown,
+        sign,
+      })
     }
   }
-  return glowPoints(pts, cols, tex, 6, 0.9)
 }
 
-// ------------------------------------------------------------ scenes
+const FLOORS = (n: number) => n * 2.8
+
+function officeTower(rng: Rng, x: number, z: number, rot: number, out: Building[], tall = 1): void {
+  const h = rng.range(90, 200) * tall
+  const w = rng.range(28, 46)
+  out.push({
+    x,
+    z,
+    w,
+    d: w * rng.range(0.6, 1),
+    h,
+    rot,
+    kind: 'office',
+    crown: rng.next() < 0.45 ? rng.pick(OFFICE_CROWNS) : null,
+    podium: rng.next() < 0.6 ? rng.range(12, 22) : 0,
+  })
+}
+
+function hotel(rng: Rng, x: number, z: number, rot: number, out: Building[]): void {
+  out.push({
+    x,
+    z,
+    w: rng.range(26, 40),
+    d: rng.range(16, 24),
+    h: rng.range(40, 110),
+    rot,
+    kind: 'hotel',
+    strips: rng.next() < 0.55 ? rng.pick(STRIPS) : null,
+    crown: rng.next() < 0.25 ? rng.pick(OFFICE_CROWNS) : null,
+  })
+}
+
+function shops(rng: Rng, x: number, z: number, rot: number, out: Building[]): void {
+  out.push({ x, z, w: rng.range(25, 45), d: rng.range(15, 25), h: rng.range(8, 22), rot, kind: 'shop' })
+}
+
+/** horizontal road polyline from x0 to x1 at z (with a few gentle bends) */
+function straight(x0: number, x1: number, z: number, wobble = 0, steps = 24): [number, number][] {
+  const pts: [number, number][] = []
+  for (let i = 0; i <= steps; i++) {
+    const x = x0 + ((x1 - x0) * i) / steps
+    pts.push([x, z + Math.sin(i * 0.7) * wobble])
+  }
+  return pts
+}
+
+function circle(r: number, n = 96): [number, number][] {
+  const pts: [number, number][] = []
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2
+    pts.push([Math.cos(a) * r, Math.sin(a) * r])
+  }
+  return pts
+}
+
+interface UrbanParts {
+  skyline: Skyline
+  traffic: Traffic
+  roadsurf: ReturnType<typeof buildRoadsurface>
+  aviation: ReturnType<typeof buildAviationLights>
+  ridge: ReturnType<typeof buildRidge>
+}
+
+function assemble(
+  group: Group,
+  parts: UrbanParts,
+  withMirror: boolean,
+): (t: number, light: Color) => void {
+  const { skyline, traffic, roadsurf, aviation, ridge } = parts
+  group.add(ridge.mesh, skyline.group, roadsurf.group, traffic.group, aviation.points)
+  if (withMirror) group.add(skyline.mirror, roadsurf.mirror, traffic.mirror)
+  let last = -1
+  return (t, light) => {
+    const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, t - last))
+    last = t
+    traffic.update(dt)
+    skyline.update(t, light)
+    aviation.update(t)
+    ridge.update(light)
+  }
+}
+
+// ------------------------------------------------------------ river (Han-river style)
 
 export function createRiver(glowTex: Texture): Scenery {
   const group = new Group()
   const disp: Disposable[] = []
   const rng = new Rng(2024)
-  const tex = makeWindowTexture(11, 0.38)
-  disp.push(tex)
+  const B: Building[] = []
 
-  // far bank: dense mixed skyline facing the river; near bank behind the audience
-  const boxes: Box[] = []
-  for (let i = 0; i < 150; i++) {
-    const tower = rng.next() < 0.18
-    boxes.push({
-      x: rng.range(-1600, 1600),
-      z: rng.range(-560, -1000),
-      w: tower ? rng.range(25, 40) : rng.range(35, 70),
-      d: tower ? rng.range(25, 40) : rng.range(12, 16),
-      h: tower ? rng.range(90, 170) : rng.range(35, 85),
-      rot: tower ? rng.range(0, 1) : rng.range(-0.08, 0.08),
-    })
+  // far bank, front row: apartment complexes facing the river
+  for (let x = -2300; x < 2300; ) {
+    const n = rng.int(3, 6)
+    const span = n * 68
+    if (Math.abs(x + span / 2 - 200) > 420 || rng.next() < 0.3) {
+      aptComplex(rng, x + span / 2, -585 - rng.range(0, 25), rng.range(-0.05, 0.05), rng.int(1, 2), n, B)
+    }
+    x += span + rng.range(60, 140)
   }
-  for (let i = 0; i < 70; i++) {
-    boxes.push({
-      x: rng.range(-1400, 1400),
-      z: rng.range(520, 900),
-      w: rng.range(35, 70),
-      d: rng.range(12, 16),
-      h: rng.range(35, 80),
-      rot: rng.range(-0.08, 0.08),
-    })
+  // business district behind the centre: towers on podiums, hotels
+  for (let i = 0; i < 26; i++) {
+    officeTower(rng, rng.range(-150, 650), rng.range(-700, -1050), rng.range(-0.15, 0.15), B, rng.next() < 0.3 ? 1.3 : 1)
   }
-  const { mesh, roofs } = buildingMesh(boxes, tex, rng, 0.8)
-  disp.push(mesh.geometry, mesh.material as MeshBasicMaterial)
-  group.add(mesh)
+  for (let i = 0; i < 14; i++) hotel(rng, rng.range(-1500, 1700), rng.range(-700, -1150), rng.range(-0.2, 0.2), B)
+  // more housing and offices further back, and low-rise streets
+  for (let i = 0; i < 12; i++) {
+    aptComplex(rng, rng.range(-2200, 2200), rng.range(-800, -1400), rng.range(-0.3, 0.3), rng.int(2, 3), rng.int(2, 4), B)
+  }
+  for (let i = 0; i < 30; i++) officeTower(rng, rng.range(-2400, 2400), rng.range(-1200, -1700), rng.range(-0.3, 0.3), B, 0.8)
+  for (let i = 0; i < 60; i++) shops(rng, rng.range(-2300, 2300), rng.range(-660, -760), rng.range(-0.05, 0.05), B)
+  // near bank behind the audience
+  for (let x = -1800; x < 1800; ) {
+    const n = rng.int(3, 5)
+    aptComplex(rng, x + n * 34, 590 + rng.range(0, 30), Math.PI + rng.range(-0.05, 0.05), 1, n, B)
+    x += n * 68 + rng.range(60, 160)
+  }
+  // remove anything that would sit on a road / bridge corridor
+  const roadsX = [-1250, -520, 340, 760, 1500]
+  const buildings = B.filter((b) => roadsX.every((rx) => Math.abs(b.x - rx) > b.w / 2 + 14) && Math.abs(b.z + 640) > b.d / 2 + 8)
 
+  const skyline = buildSkyline(buildings, 77)
+
+  // roads: riverside expressways (heavy traffic), bridges, city streets
+  const roads: Road[] = [
+    { path: straight(-3000, 3000, -505), lanesPerDir: 4, density: 5, speed: [16, 28] },
+    { path: straight(-3000, 3000, 500), lanesPerDir: 4, density: 4, speed: [16, 28] },
+    { path: straight(-2600, 2600, -640, 3), lanesPerDir: 2, density: 1.8, speed: [8, 15] },
+    { path: [[-520, -505], [-520, 500]], y: 10.2, lanesPerDir: 2, density: 3, speed: [14, 22] },
+    { path: [[760, -505], [760, 500]], y: 10.2, lanesPerDir: 3, density: 3, speed: [14, 22] },
+  ]
+  for (const rx of [-1250, 340, 1500]) roads.push({ path: [[rx, -505], [rx, -1600]], lanesPerDir: 2, density: 1.5, speed: [8, 15] })
+  const traffic = buildTraffic(roads, glowTex, 31)
+  const roadsurf = buildRoadsurface(roads, glowTex)
+
+  // bridge decks, piers and the bridge's own lamp rows
+  const deckQ = groundMesh(
+    [
+      { x0: -532, x1: -508, z0: -505, z1: 500 },
+      { x0: 744, x1: 776, z0: -505, z1: 500 },
+    ],
+    new Color(0.012, 0.012, 0.015),
+  )
+  deckQ.mesh.position.y = 9.3
+  disp.push(deckQ.mesh.geometry, deckQ.mat)
+  group.add(deckQ.mesh)
+  // arches on the right bridge: lit truss outline
+  const arch: number[] = []
+  const archCol: number[] = []
+  for (let k = 0; k < 4; k++) {
+    const z0 = -480 + k * 240
+    for (let i = 0; i <= 24; i++) {
+      const f = i / 24
+      const yy = 10 + Math.sin(f * Math.PI) * 30
+      arch.push(760 - 16, yy, z0 + f * 240, 760 + 16, yy, z0 + f * 240)
+      archCol.push(0.55, 0.8, 1, 0.55, 0.8, 1)
+    }
+  }
+  const archPts = glowPoints(arch, archCol, glowTex, 3.5, 0.75)
+  disp.push(archPts.geo, archPts.mat)
+  group.add(archPts.points)
+  const archMirror = new Points(archPts.geo, archPts.mat.clone())
+  ;(archMirror.material as PointsMaterial).opacity = 0.25
+  archMirror.scale.y = -1
+  archMirror.renderOrder = 2
+  disp.push(archMirror.material as PointsMaterial)
+  group.add(archMirror)
+
+  // banks (land) and a dark riverside park strip
+  const groundBase = new Color(0.006, 0.007, 0.009)
   const ground = groundMesh(
     [
-      { x0: -4000, x1: 4000, z0: -480, z1: -4000 },
-      { x0: -4000, x1: 4000, z0: 470, z1: 4000 },
+      { x0: -5000, x1: 5000, z0: -480, z1: -5000 },
+      { x0: -5000, x1: 5000, z0: 470, z1: 5000 },
     ],
-    new Color(0.006, 0.007, 0.009),
+    groundBase,
   )
   disp.push(ground.mesh.geometry, ground.mat)
   group.add(ground.mesh)
 
-  // riverside road lights along both banks + bridge
-  const pts: number[] = []
-  const cols: number[] = []
-  for (let x = -2000; x <= 2000; x += 26) {
-    pts.push(x, 4, -488, x + 13, 4, 478)
-    cols.push(1, 0.62, 0.28, 1, 0.62, 0.28)
-  }
-  const bridgeX = -460
-  for (let z = -480; z <= 470; z += 14) {
-    pts.push(bridgeX - 9, 13, z, bridgeX + 9, 13, z)
-    cols.push(0.9, 0.85, 0.75, 0.9, 0.85, 0.75)
-  }
-  // car lights crossing the bridge
-  for (let i = 0; i < 40; i++) {
-    pts.push(bridgeX + rng.range(-5, 5), 10.5, rng.range(-470, 460))
-    if (rng.next() < 0.5) cols.push(1, 0.95, 0.8)
-    else cols.push(1, 0.1, 0.05)
-  }
-  const lamps = glowPoints(pts, cols, glowTex, 5, 0.75)
-  disp.push(lamps.geo, lamps.mat)
-  group.add(lamps.points)
+  const aviation = buildAviationLights(skyline.roofs, 95, glowTex)
+  const ridge = buildRidge([0, 0], 2300, [Math.PI * 1.05, Math.PI * 1.95], 260, 5)
+  const parts = { skyline, traffic, roadsurf, aviation, ridge }
+  const tick = assemble(group, parts, true)
+  disp.push(skyline, traffic, roadsurf, aviation, ridge)
 
-  // bridge deck and piers (silhouette)
-  const deck = groundMesh([{ x0: bridgeX - 10, x1: bridgeX + 10, z0: -480, z1: 470 }], new Color(0.01, 0.011, 0.014))
-  deck.mesh.position.y = 9
-  disp.push(deck.mesh.geometry, deck.mat)
-  group.add(deck.mesh)
-  const piers: Box[] = []
-  for (let z = -420; z <= 420; z += 70) piers.push({ x: bridgeX, z, w: 6, d: 6, h: 9, rot: 0 })
-  const pierMesh = buildingMesh(piers, tex, rng, 0.02)
-  disp.push(pierMesh.mesh.geometry, pierMesh.mesh.material as MeshBasicMaterial)
-  group.add(pierMesh.mesh)
-
-  const blink = blinkers(roofs, 0.7, rng, glowTex)
-  disp.push(blink.geo, blink.mat)
-  group.add(blink.points)
-
-  const groundBase = new Color(0.006, 0.007, 0.009)
   return {
     group,
     water: { visible: true, amp: 0.75, speed: 1, flow: [9, 0] },
     reflections: true,
+    horizonGlow: [0.055, 0.032, 0.018],
     update(t, light) {
-      blink.mat.opacity = Math.sin(t * 2.4) > 0.2 ? 0.95 : 0.08
+      tick(t, light)
       ground.mat.color.setRGB(groundBase.r + light.r * 0.15, groundBase.g + light.g * 0.15, groundBase.b + light.b * 0.15)
     },
     dispose() {
@@ -312,95 +348,117 @@ export function createRiver(glowTex: Texture): Scenery {
   }
 }
 
+// ------------------------------------------------------------ city
+
 export function createCity(glowTex: Texture): Scenery {
   const group = new Group()
   const disp: Disposable[] = []
   const rng = new Rng(5150)
-  const tex = makeWindowTexture(23, 0.2)
-  disp.push(tex)
+  const B: Building[] = []
+  const radials = 8
+  const radialAngle = (i: number) => (i / radials) * Math.PI * 2 + Math.PI / 8
 
-  // apartment complexes all around the park: rows of slab towers
-  const boxes: Box[] = []
-  const complexes = 26
-  for (let c = 0; c < complexes; c++) {
-    const ang = (c / complexes) * Math.PI * 2 + rng.range(-0.08, 0.08)
-    const r = rng.range(360, 760)
-    const cx = Math.cos(ang) * r
-    const cz = Math.sin(ang) * r
-    const face = ang + Math.PI / 2 + rng.range(-0.25, 0.25)
-    const rows = rng.int(2, 3)
-    const perRow = rng.int(2, 4)
-    const h = rng.range(45, 95)
-    for (let a = 0; a < rows; a++) {
-      for (let b = 0; b < perRow; b++) {
-        const lx = (b - (perRow - 1) / 2) * 62
-        const lz = (a - (rows - 1) / 2) * 48
-        boxes.push({
-          x: cx + lx * Math.cos(face) - lz * Math.sin(face),
-          z: cz + lx * Math.sin(face) + lz * Math.cos(face),
-          w: rng.range(42, 56),
-          d: rng.range(12, 15),
-          h: h + rng.range(-8, 8),
-          rot: face,
-        })
+  for (let sct = 0; sct < radials; sct++) {
+    const mid = radialAngle(sct) + Math.PI / radials
+    const cbd = Math.abs(Math.sin(mid) + 1) < 0.25 // the sector straight behind the show (−z)
+    for (const [r, off] of [
+      [520, 0],
+      [1000, -0.13],
+      [1000, 0.13],
+      [1500, -0.12],
+      [1500, 0.12],
+      [1950, -0.15],
+      [1950, 0],
+      [1950, 0.15],
+    ] as [number, number][]) {
+      const cx = Math.cos(mid + off) * r
+      const cz = Math.sin(mid + off) * r
+      const face = Math.atan2(-cz, -cx) - Math.PI / 2 // fronts face the park
+      if (cbd && r > 600) {
+        // business district: tall towers
+        for (let i = 0; i < 9; i++) {
+          officeTower(rng, cx + rng.range(-150, 150), cz + rng.range(-110, 110), face + rng.range(-0.2, 0.2), B, r > 1200 ? 1.15 : 1.35)
+        }
+        for (let i = 0; i < 3; i++) hotel(rng, cx + rng.range(-170, 170), cz + rng.range(-120, 120), face, B)
+      } else {
+        aptComplex(rng, cx, cz, face + rng.range(-0.15, 0.15), r > 1200 ? 2 : rng.int(2, 3), r > 900 ? rng.int(2, 3) : rng.int(2, 4), B)
+      }
+      // a strip of shops between complexes and the ring road
+      if (r < 1200 && off <= 0) {
+        for (let i = 0; i < 5; i++) {
+          const a = mid + (i - 2) * 0.07
+          shops(rng, Math.cos(a) * (r - 120), Math.sin(a) * (r - 120), Math.atan2(-Math.sin(a), -Math.cos(a)) - Math.PI / 2, B)
+        }
       }
     }
   }
-  // far skyline ring
-  for (let i = 0; i < 180; i++) {
-    const ang = rng.range(0, Math.PI * 2)
-    const r = rng.range(1050, 1500)
-    boxes.push({
-      x: Math.cos(ang) * r,
-      z: Math.sin(ang) * r,
-      w: rng.range(30, 60),
-      d: rng.range(12, 30),
-      h: rng.range(30, 130),
-      rot: ang + Math.PI / 2,
+  // keep radial avenues clear
+  const buildings = B.filter((b) => {
+    const ang = Math.atan2(b.z, b.x)
+    const r = Math.hypot(b.x, b.z)
+    for (let i = 0; i < radials; i++) {
+      const d = Math.abs(Math.sin(ang - radialAngle(i))) * r
+      if (d < b.w / 2 + 16 && Math.cos(ang - radialAngle(i)) > 0) return false
+    }
+    return [330, 760, 1250].every((rr) => Math.abs(r - rr) > Math.max(b.w, b.d) / 2 + 14)
+  })
+  const skyline = buildSkyline(buildings, 91)
+
+  const roads: Road[] = [
+    { path: circle(330), closed: true, lanesPerDir: 4, density: 4, speed: [10, 18] },
+    { path: circle(760, 128), closed: true, lanesPerDir: 3, density: 3, speed: [12, 20] },
+    { path: circle(1250, 160), closed: true, lanesPerDir: 3, density: 2, speed: [14, 22] },
+  ]
+  roads.push({ path: straight(-3200, 3200, 150), y: 13.4, lanesPerDir: 4, density: 7, speed: [18, 30] })
+  for (let i = 0; i < radials; i++) {
+    const a = radialAngle(i)
+    roads.push({
+      path: [
+        [Math.cos(a) * 330, Math.sin(a) * 330],
+        [Math.cos(a) * 1900, Math.sin(a) * 1900],
+      ],
+      lanesPerDir: 3,
+      density: 3,
+      speed: [10, 20],
     })
   }
-  const { mesh, roofs } = buildingMesh(boxes, tex, rng, 0.55)
-  disp.push(mesh.geometry, mesh.material as MeshBasicMaterial)
-  group.add(mesh)
+  const traffic = buildTraffic(roads, glowTex, 17)
+  const roadsurf = buildRoadsurface(roads, glowTex, { lampSpacing: 28, lampColor: [1, 0.75, 0.45] })
 
-  const groundBase = new Color(0.008, 0.009, 0.011)
+  const groundBase = new Color(0.006, 0.007, 0.008)
   const ground = groundMesh([{ x0: -5000, x1: 5000, z0: -5000, z1: 5000 }], groundBase)
+  // elevated expressway between the audience and the launch site
+  const deck = groundMesh([{ x0: -3200, x1: 3200, z0: 133, z1: 167 }], new Color(0.014, 0.014, 0.017))
+  deck.mesh.position.y = 12.2
+  disp.push(deck.mesh.geometry, deck.mat)
+  group.add(deck.mesh)
+  const piers: number[] = []
+  for (let x = -3000; x <= 3000; x += 60) piers.push(x - 1.5, 0, 150, x + 1.5, 0, 150, x + 1.5, 12.2, 150, x - 1.5, 12.2, 150)
+  const pierGeo = new BufferGeometry()
+  pierGeo.setAttribute('position', new Float32BufferAttribute(piers, 3))
+  const pierIdx: number[] = []
+  for (let i = 0; i < piers.length / 12; i++) pierIdx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3)
+  pierGeo.setIndex(pierIdx)
+  const pierMat = new MeshBasicMaterial({ color: new Color(0.01, 0.01, 0.012), side: DoubleSide })
+  const pierMesh = new Mesh(pierGeo, pierMat)
+  pierMesh.renderOrder = 1
+  disp.push(pierGeo, pierMat)
+  group.add(pierMesh)
   disp.push(ground.mesh.geometry, ground.mat)
   group.add(ground.mesh)
 
-  // street lamps on ring roads, and a lit park boundary
-  const pts: number[] = []
-  const cols: number[] = []
-  for (const r of [300, 560, 980]) {
-    const n = Math.round((Math.PI * 2 * r) / 30)
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2
-      pts.push(Math.cos(a) * r, 7, Math.sin(a) * r)
-      cols.push(1, 0.6, 0.25)
-    }
-  }
-  // traffic: white heads / red tails scattered on the ring roads
-  for (let i = 0; i < 220; i++) {
-    const r = rng.pick([305, 565, 985])
-    const a = rng.range(0, Math.PI * 2)
-    pts.push(Math.cos(a) * r, 1.2, Math.sin(a) * r)
-    if (rng.next() < 0.5) cols.push(1, 0.95, 0.85)
-    else cols.push(1, 0.08, 0.04)
-  }
-  const lamps = glowPoints(pts, cols, glowTex, 5, 0.7)
-  disp.push(lamps.geo, lamps.mat)
-  group.add(lamps.points)
-
-  const blink = blinkers(roofs, 0.5, rng, glowTex)
-  disp.push(blink.geo, blink.mat)
-  group.add(blink.points)
+  const aviation = buildAviationLights(skyline.roofs, 95, glowTex)
+  const ridge = buildRidge([0, 0], 2700, [0, Math.PI * 2], 330, 9)
+  const tick = assemble(group, { skyline, traffic, roadsurf, aviation, ridge }, false)
+  disp.push(skyline, traffic, roadsurf, aviation, ridge)
 
   return {
     group,
     water: { visible: false, amp: 0, speed: 0, flow: [0, 0] },
     reflections: false,
+    horizonGlow: [0.075, 0.042, 0.022],
     update(t, light) {
-      blink.mat.opacity = Math.sin(t * 2.4) > 0.2 ? 0.95 : 0.08
+      tick(t, light)
       ground.mat.color.setRGB(groundBase.r + light.r * 0.25, groundBase.g + light.g * 0.25, groundBase.b + light.b * 0.25)
     },
     dispose() {
@@ -463,6 +521,7 @@ export function createLake(glowTex: Texture): Scenery {
     group,
     water: { visible: true, amp: 0.3, speed: 0.6, flow: [0, 0] },
     reflections: true,
+    horizonGlow: [0.012, 0.01, 0.01],
     update(_t, light) {
       mat.color.setRGB(mountBase.r + light.r * 0.06, mountBase.g + light.g * 0.06, mountBase.b + light.b * 0.06)
     },
@@ -507,6 +566,7 @@ export function createSea(glowTex: Texture): Scenery {
     group,
     water: { visible: true, amp: 1.5, speed: 0.85, flow: [0, 2] },
     reflections: true,
+    horizonGlow: [0.008, 0.009, 0.013],
     update(t) {
       // rotating beam: bright pulse every ~6 s
       const ph = (t / 6) % 1

@@ -44,6 +44,7 @@ void main() {
 `
 const skyFragment = /* glsl */ `
 uniform vec3 uLight;
+uniform vec3 uGlow;
 uniform vec3 uMoon;
 varying vec3 vDir;
 void main() {
@@ -51,8 +52,8 @@ void main() {
   vec3 zenith = vec3(0.004, 0.006, 0.018);
   vec3 horizon = vec3(0.022, 0.026, 0.045);
   vec3 col = mix(horizon, zenith, pow(max(h, 0.0), 0.45));
-  // warm city haze near the horizon
-  col += vec3(0.03, 0.016, 0.008) * exp(-abs(h) * 22.0);
+  // light pollution: warm glow hugging the horizon, fading upward
+  col += uGlow * (exp(-max(h, 0.0) * 14.0) + 0.25 * exp(-max(h, 0.0) * 3.5));
   // light from bursts, strongest overhead / at mid-height
   col += uLight * (0.3 + 0.7 * smoothstep(-0.05, 0.5, h)) * 0.2;
   // moon disc + soft halo
@@ -168,7 +169,7 @@ export function createEnvironment(glowTexture: Texture): Environment {
     side: BackSide,
     depthWrite: false,
     depthTest: false,
-    uniforms: { uLight: { value: new Color(0, 0, 0) }, uMoon: { value: MOON_DIR } },
+    uniforms: { uLight: { value: new Color(0, 0, 0) }, uMoon: { value: MOON_DIR }, uGlow: { value: new Color(0.03, 0.016, 0.008) } },
   })
   disposables.push(domeGeo, domeMat)
   const dome = new Mesh(domeGeo, domeMat)
@@ -246,6 +247,7 @@ export function createEnvironment(glowTexture: Texture): Environment {
     scenery = createScenery(id, glowTexture)
     group.add(scenery.group)
     water.visible = scenery.water.visible
+    ;(domeMat.uniforms.uGlow.value as Color).setRGB(...scenery.horizonGlow)
     const u = waterMat.uniforms
     u.uAmp.value = scenery.water.amp
     u.uSpeed.value = scenery.water.speed
