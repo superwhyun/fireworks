@@ -14,7 +14,9 @@ import {
 import { Rng } from './rng'
 import {
   buildAviationLights,
+  buildCrowd,
   buildRidge,
+  buildTower,
   buildRoadsurface,
   buildSkyline,
   buildTraffic,
@@ -50,6 +52,8 @@ export interface Scenery {
   reflections: boolean
   /** light-pollution glow on the horizon (linear rgb) */
   horizonGlow: [number, number, number]
+  /** eye-level camera among the audience */
+  audience: { pos: [number, number, number]; target: [number, number, number] }
   update(t: number, light: Color): void
   dispose(): void
 }
@@ -258,10 +262,10 @@ export function createRiver(glowTex: Texture): Scenery {
   }
   for (let i = 0; i < 30; i++) officeTower(rng, rng.range(-2400, 2400), rng.range(-1200, -1700), rng.range(-0.3, 0.3), B, 0.8)
   for (let i = 0; i < 60; i++) shops(rng, rng.range(-2300, 2300), rng.range(-660, -760), rng.range(-0.05, 0.05), B)
-  // near bank behind the audience
+  // near bank behind the audience (beyond the riverside park and expressway)
   for (let x = -1800; x < 1800; ) {
     const n = rng.int(3, 5)
-    aptComplex(rng, x + n * 34, 590 + rng.range(0, 30), Math.PI + rng.range(-0.05, 0.05), 1, n, B)
+    aptComplex(rng, x + n * 34, 700 + rng.range(0, 30), Math.PI + rng.range(-0.05, 0.05), 1, n, B)
     x += n * 68 + rng.range(60, 160)
   }
   // remove anything that would sit on a road / bridge corridor
@@ -272,11 +276,11 @@ export function createRiver(glowTex: Texture): Scenery {
 
   // roads: riverside expressways (heavy traffic), bridges, city streets
   const roads: Road[] = [
-    { path: straight(-3000, 3000, -505), lanesPerDir: 4, density: 5, speed: [16, 28] },
-    { path: straight(-3000, 3000, 500), lanesPerDir: 4, density: 4, speed: [16, 28] },
+    { path: straight(-3000, 3000, -505), lanesPerDir: 4, density: 7, speed: [16, 28] },
+    { path: straight(-3000, 3000, 615), lanesPerDir: 4, density: 6, speed: [16, 28] },
     { path: straight(-2600, 2600, -640, 3), lanesPerDir: 2, density: 1.8, speed: [8, 15] },
-    { path: [[-520, -505], [-520, 500]], y: 10.2, lanesPerDir: 2, density: 3, speed: [14, 22] },
-    { path: [[760, -505], [760, 500]], y: 10.2, lanesPerDir: 3, density: 3, speed: [14, 22] },
+    { path: [[-520, -505], [-520, 615]], y: 10.2, lanesPerDir: 2, density: 4, speed: [14, 22] },
+    { path: [[760, -505], [760, 615]], y: 10.2, lanesPerDir: 3, density: 4, speed: [14, 22] },
   ]
   for (const rx of [-1250, 340, 1500]) roads.push({ path: [[rx, -505], [rx, -1600]], lanesPerDir: 2, density: 1.5, speed: [8, 15] })
   const traffic = buildTraffic(roads, glowTex, 31)
@@ -285,8 +289,8 @@ export function createRiver(glowTex: Texture): Scenery {
   // bridge decks, piers and the bridge's own lamp rows
   const deckQ = groundMesh(
     [
-      { x0: -532, x1: -508, z0: -505, z1: 500 },
-      { x0: 744, x1: 776, z0: -505, z1: 500 },
+      { x0: -532, x1: -508, z0: -505, z1: 615 },
+      { x0: 744, x1: 776, z0: -505, z1: 615 },
     ],
     new Color(0.012, 0.012, 0.015),
   )
@@ -333,13 +337,57 @@ export function createRiver(glowTex: Texture): Scenery {
   const tick = assemble(group, parts, true)
   disp.push(skyline, traffic, roadsurf, aviation, ridge)
 
+  // launch barges moored under the show, with dim work lights
+  const barges = groundMesh(
+    [-150, -60, 30, 120].map((bx, i) => ({ x0: bx - 34, x1: bx + 34, z0: -95 + (i % 2) * 30, z1: -55 + (i % 2) * 30 })),
+    new Color(0.012, 0.012, 0.014),
+  )
+  barges.mesh.position.y = 1.2
+  disp.push(barges.mesh.geometry, barges.mat)
+  group.add(barges.mesh)
+  const work: number[] = []
+  const workCol: number[] = []
+  for (const bx of [-150, -60, 30, 120]) {
+    for (const dx of [-28, 28]) {
+      work.push(bx + dx, 4, -75)
+      workCol.push(1, 0.7, 0.4)
+    }
+  }
+  const workPts = glowPoints(work, workCol, glowTex, 4, 0.45)
+  disp.push(workPts.geo, workPts.mat)
+  group.add(workPts.points)
+
+  // riverside park on the near bank: the audience, trees
+  const crowd = buildCrowd(
+    [
+      // people pack toward the water's edge
+      { x0: -600, x1: 600, z0: 476, z1: 492 },
+      { x0: -600, x1: 600, z0: 476, z1: 492 },
+      { x0: -600, x1: 600, z0: 476, z1: 505 },
+      { x0: -600, x1: 600, z0: 478, z1: 585 },
+    ],
+    3400,
+    120,
+    glowTex,
+    41,
+    { x: 40, z: 520, r: 7 },
+  )
+  group.add(crowd.group)
+  disp.push(crowd)
+  const tower = buildTower(-1150, -2050, glowTex)
+  group.add(tower.group)
+  disp.push(tower)
+
   return {
     group,
     water: { visible: true, amp: 0.75, speed: 1, flow: [9, 0] },
     reflections: true,
     horizonGlow: [0.055, 0.032, 0.018],
+    audience: { pos: [40, 2.4, 520], target: [0, 80, -60] },
     update(t, light) {
       tick(t, light)
+      crowd.update(t, light)
+      tower.update(t, light)
       ground.mat.color.setRGB(groundBase.r + light.r * 0.15, groundBase.g + light.g * 0.15, groundBase.b + light.b * 0.15)
     },
     dispose() {
@@ -409,7 +457,7 @@ export function createCity(glowTex: Texture): Scenery {
     { path: circle(760, 128), closed: true, lanesPerDir: 3, density: 3, speed: [12, 20] },
     { path: circle(1250, 160), closed: true, lanesPerDir: 3, density: 2, speed: [14, 22] },
   ]
-  roads.push({ path: straight(-3200, 3200, 150), y: 13.4, lanesPerDir: 4, density: 7, speed: [18, 30] })
+  roads.push({ path: straight(-3200, 3200, 150), y: 13.4, lanesPerDir: 4, density: 9, speed: [18, 30] })
   for (let i = 0; i < radials; i++) {
     const a = radialAngle(i)
     roads.push({
@@ -452,13 +500,35 @@ export function createCity(glowTex: Texture): Scenery {
   const tick = assemble(group, { skyline, traffic, roadsurf, aviation, ridge }, false)
   disp.push(skyline, traffic, roadsurf, aviation, ridge)
 
+  // park between the expressway and the audience: people and trees
+  const crowd = buildCrowd(
+    [
+      { x0: -420, x1: 420, z0: 178, z1: 300 },
+      { x0: -300, x1: -195, z0: -120, z1: 120 },
+      { x0: 195, x1: 300, z0: -120, z1: 120 },
+    ],
+    3000,
+    160,
+    glowTex,
+    43,
+    { x: 20, z: 305, r: 7 },
+  )
+  group.add(crowd.group)
+  disp.push(crowd)
+  const tower = buildTower(-950, -2150, glowTex)
+  group.add(tower.group)
+  disp.push(tower)
+
   return {
     group,
     water: { visible: false, amp: 0, speed: 0, flow: [0, 0] },
     reflections: false,
     horizonGlow: [0.075, 0.042, 0.022],
+    audience: { pos: [20, 2.4, 305], target: [0, 80, -60] },
     update(t, light) {
       tick(t, light)
+      crowd.update(t, light)
+      tower.update(t, light)
       ground.mat.color.setRGB(groundBase.r + light.r * 0.25, groundBase.g + light.g * 0.25, groundBase.b + light.b * 0.25)
     },
     dispose() {
@@ -522,6 +592,7 @@ export function createLake(glowTex: Texture): Scenery {
     water: { visible: true, amp: 0.3, speed: 0.6, flow: [0, 0] },
     reflections: true,
     horizonGlow: [0.012, 0.01, 0.01],
+    audience: { pos: [0, 2.4, 330], target: [0, 80, -60] },
     update(_t, light) {
       mat.color.setRGB(mountBase.r + light.r * 0.06, mountBase.g + light.g * 0.06, mountBase.b + light.b * 0.06)
     },
@@ -567,6 +638,7 @@ export function createSea(glowTex: Texture): Scenery {
     water: { visible: true, amp: 1.5, speed: 0.85, flow: [0, 2] },
     reflections: true,
     horizonGlow: [0.008, 0.009, 0.013],
+    audience: { pos: [0, 2.4, 330], target: [0, 80, -60] },
     update(t) {
       // rotating beam: bright pulse every ~6 s
       const ph = (t / 6) % 1

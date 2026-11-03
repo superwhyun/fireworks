@@ -4,6 +4,8 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
+  ConeGeometry,
+  CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
   Float32BufferAttribute,
@@ -675,11 +677,17 @@ export function buildTraffic(roads: Road[], glowTex: Texture, seed: number): Tra
   }
   const p = [0, 0, 0, 0]
 
+  let clock = 0
   const update = (dt: number) => {
+    clock += dt
     for (let i = 0; i < N; i++) {
       const c = cars[i]
       const rc = cache[c.road]
-      c.s += c.v * c.dir * dt
+      // stop-and-go: slow zones drift backwards along the road, so cars bunch
+      // into queues and then spread out again, like real congestion
+      const wave = Math.sin(c.s * 0.011 * c.dir + clock * 0.32 + c.lane * 1.7 + c.road * 2.3)
+      const jam = 0.3 + 0.7 * (0.5 + 0.5 * wave) ** 1.5
+      c.s += c.v * jam * c.dir * dt
       if (!rc.closed && (c.s > rc.len || c.s < 0)) c.s = c.dir > 0 ? 0 : rc.len
       at(rc, c.s, p)
       const tx = p[2] * c.dir
@@ -870,6 +878,261 @@ export function buildRidge(
     dispose() {
       geo.dispose()
       mat.dispose()
+    },
+  }
+}
+
+
+// ------------------------------------------------------------ people & trees
+
+function silhouetteTexture(kind: 'person' | 'phone' | 'tree', seed: number): Texture {
+  const N = 128
+  const c = document.createElement('canvas')
+  c.width = N
+  c.height = N
+  const g = c.getContext('2d')
+  if (!g) throw new Error('2D canvas context unavailable')
+  const rng = new Rng(seed)
+  g.fillStyle = '#fff'
+  if (kind === 'tree') {
+    // trunk + irregular canopy
+    g.fillRect(N * 0.47, N * 0.6, N * 0.06, N * 0.4)
+    for (let i = 0; i < 22; i++) {
+      g.beginPath()
+      g.ellipse(N * rng.range(0.25, 0.75), N * rng.range(0.12, 0.6), N * rng.range(0.08, 0.18), N * rng.range(0.08, 0.16), 0, 0, Math.PI * 2)
+      g.fill()
+    }
+  } else {
+    // person seen from behind, feet at the bottom of the sprite
+    const cx = N / 2
+    g.beginPath()
+    g.arc(cx, N * 0.13, N * 0.075, 0, Math.PI * 2) // head
+    g.fill()
+    g.beginPath()
+    g.moveTo(cx - N * 0.16, N * 0.26)
+    g.quadraticCurveTo(cx, N * 0.2, cx + N * 0.16, N * 0.26)
+    g.lineTo(cx + N * 0.13, N * 0.62)
+    g.lineTo(cx + N * 0.1, N)
+    g.lineTo(cx - N * 0.1, N)
+    g.lineTo(cx - N * 0.13, N * 0.62)
+    g.closePath()
+    g.fill()
+    if (kind === 'phone') {
+      // raised arm holding a phone up to film
+      g.lineWidth = N * 0.06
+      g.strokeStyle = '#fff'
+      g.beginPath()
+      g.moveTo(cx + N * 0.12, N * 0.28)
+      g.lineTo(cx + N * 0.2, N * 0.02)
+      g.stroke()
+    }
+  }
+  const tex = new CanvasTexture(c)
+  tex.colorSpace = SRGBColorSpace
+  return tex
+}
+
+/** dark sprites (people / trees) with alpha-tested shapes, sizes in world units */
+function silhouettePoints(pts: number[], size: number, tex: Texture, color: Color): { points: Points; dispose(): void } {
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new Float32BufferAttribute(pts, 3))
+  const mat = new PointsMaterial({
+    size,
+    map: tex,
+    color,
+    alphaTest: 0.5,
+    transparent: false,
+    sizeAttenuation: true,
+  })
+  const points = new Points(geo, mat)
+  points.renderOrder = 4
+  points.frustumCulled = false
+  return {
+    points,
+    dispose() {
+      geo.dispose()
+      mat.dispose()
+      tex.dispose()
+    },
+  }
+}
+
+export interface Crowd {
+  group: Group
+  update(t: number, light: Color): void
+  dispose(): void
+}
+
+/**
+ * Audience: silhouettes standing in an area, some filming with lit phone
+ * screens, plus trees. Points sprites are centred on their position, so
+ * people are lifted by half their size to stand on the ground.
+ */
+export function buildCrowd(
+  area: { x0: number; x1: number; z0: number; z1: number }[],
+  count: number,
+  trees: number,
+  glowTex: Texture,
+  seed: number,
+  clear?: { x: number; z: number; r: number },
+): Crowd {
+  const rng = new Rng(seed)
+  const group = new Group()
+  const disp: Disposable[] = []
+  const pick = () => {
+    for (;;) {
+      const a = area[Math.floor(rng.next() * area.length)]
+      const p = [rng.range(a.x0, a.x1), rng.range(a.z0, a.z1)]
+      // keep a gap around the eye-level camera, wider behind it
+      if (!clear || Math.hypot(p[0] - clear.x, (p[1] - clear.z) * (p[1] > clear.z ? 0.3 : 1)) > clear.r) return p
+    }
+  }
+  const H = 1.9
+  const people: number[] = []
+  const filmers: number[] = []
+  const phones: number[] = []
+  for (let i = 0; i < count; i++) {
+    const [x, z] = pick()
+    const h = H * rng.range(0.85, 1.08)
+    if (rng.next() < 0.14) {
+      filmers.push(x, h / 2, z)
+      phones.push(x + h * 0.2, h * 0.98, z + 0.05)
+    } else {
+      people.push(x, h / 2, z)
+    }
+  }
+  const dark = new Color(0.004, 0.004, 0.005)
+  const a = silhouettePoints(people, H, silhouetteTexture('person', 1), dark.clone())
+  const b = silhouettePoints(filmers, H, silhouetteTexture('phone', 2), dark.clone())
+  const treePts: number[] = []
+  for (let i = 0; i < trees; i++) {
+    const [x, z] = pick()
+    // never plant a tree in the eye-level camera's view toward the show
+    if (clear && z < clear.z + 20 && Math.abs(x - clear.x) < 140 + (clear.z - z) * 0.8) continue
+    const th = rng.range(7, 12)
+    treePts.push(x, th / 2, z)
+  }
+  const tr = silhouettePoints(treePts, 10, silhouetteTexture('tree', 3), new Color(0.003, 0.005, 0.004))
+  group.add(tr.points, a.points, b.points)
+  disp.push(a, b, tr)
+
+  // phone screens: small cool-white glows that switch on and off over time
+  const pg = new BufferGeometry()
+  pg.setAttribute('position', new Float32BufferAttribute(phones, 3))
+  const pcol = new Float32Array(phones.length)
+  const pa = new BufferAttribute(pcol, 3)
+  pa.setUsage(DynamicDrawUsage)
+  pg.setAttribute('color', pa)
+  const pm = new PointsMaterial({
+    size: 0.7,
+    map: glowTex,
+    vertexColors: true,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+  })
+  const pp = new Points(pg, pm)
+  pp.renderOrder = 5
+  pp.frustumCulled = false
+  group.add(pp)
+  disp.push(pg, pm)
+  const nPhones = phones.length / 3
+  const phase = Array.from({ length: nPhones }, () => rng.range(0, 100))
+
+  const mats = [a.points.material, b.points.material, tr.points.material] as PointsMaterial[]
+  const bases = mats.map((m) => m.color.clone())
+  return {
+    group,
+    update(t, light) {
+      for (let i = 0; i < nPhones; i++) {
+        const on = Math.sin(t * 0.21 + phase[i]) > -0.3 ? 1 : 0
+        const k = on * (0.8 + 0.2 * Math.sin(t * 3 + phase[i]))
+        pcol[i * 3] = 0.75 * k
+        pcol[i * 3 + 1] = 0.85 * k
+        pcol[i * 3 + 2] = 1 * k
+      }
+      pa.needsUpdate = true
+      // rim-lit very slightly by the bursts
+      mats.forEach((m, i) => m.color.setRGB(bases[i].r + light.r * 0.05, bases[i].g + light.g * 0.05, bases[i].b + light.b * 0.05))
+    },
+    dispose() {
+      for (const d of disp) d.dispose()
+    },
+  }
+}
+
+// ------------------------------------------------------------ landmark tower
+
+/**
+ * A generic observation / broadcast tower on a hill: slender shaft, a lit
+ * observation pod, an antenna with red obstruction lights.
+ */
+export function buildTower(x: number, z: number, glowTex: Texture): { group: Group; update(t: number, light: Color): void; dispose(): void } {
+  const group = new Group()
+  const disp: Disposable[] = []
+  const dark = new Color(0.008, 0.009, 0.012)
+  const hillH = 150
+  const hill = new Mesh(new ConeGeometry(420, hillH, 48, 1, true), new MeshBasicMaterial({ color: new Color(0.005, 0.006, 0.009) }))
+  hill.position.set(x, hillH / 2 - 2, z)
+  hill.scale.set(1, 1, 0.8)
+  const shaftH = 150
+  const shaft = new Mesh(new CylinderGeometry(3, 6, shaftH, 16), new MeshBasicMaterial({ color: dark }))
+  shaft.position.set(x, hillH + shaftH / 2 - 6, z)
+  const podY = hillH + shaftH - 18
+  const pod = new Mesh(new CylinderGeometry(15, 11, 14, 32), new MeshBasicMaterial({ color: dark }))
+  pod.position.set(x, podY, z)
+  const ant = new Mesh(new CylinderGeometry(0.8, 1.6, 60, 8), new MeshBasicMaterial({ color: dark }))
+  ant.position.set(x, hillH + shaftH + 22, z)
+  for (const m of [hill, shaft, pod, ant]) {
+    m.renderOrder = 1
+    group.add(m)
+    disp.push(m.geometry, m.material as MeshBasicMaterial)
+  }
+
+  // observation deck windows (two bands) + shaft uplights + antenna lights
+  const pts: number[] = []
+  const cols: number[] = []
+  for (const [yy, rr] of [
+    [podY + 2.5, 15.2],
+    [podY - 2.5, 13.6],
+  ]) {
+    for (let i = 0; i < 64; i++) {
+      const a = (i / 64) * Math.PI * 2
+      pts.push(x + Math.cos(a) * rr, yy, z + Math.sin(a) * rr)
+      cols.push(1, 0.88, 0.7)
+    }
+  }
+  for (let yy = hillH; yy < podY - 10; yy += 9) {
+    pts.push(x, yy, z + 6.5)
+    cols.push(0.35, 0.4, 0.5)
+  }
+  const deck = new BufferGeometry()
+  deck.setAttribute('position', new Float32BufferAttribute(pts, 3))
+  deck.setAttribute('color', new Float32BufferAttribute(cols, 3))
+  const deckMat = new PointsMaterial({ size: 4, map: glowTex, vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false })
+  const deckPts = new Points(deck, deckMat)
+  deckPts.renderOrder = 3
+  group.add(deckPts)
+  disp.push(deck, deckMat)
+
+  const red = new BufferGeometry()
+  red.setAttribute('position', new Float32BufferAttribute([x, hillH + shaftH + 52, z, x, hillH + shaftH + 30, z, x, podY + 9, z + 12], 3))
+  const redMat = new PointsMaterial({ size: 9, map: glowTex, color: new Color(1, 0.08, 0.04), transparent: true, blending: AdditiveBlending, depthWrite: false })
+  const redPts = new Points(red, redMat)
+  redPts.renderOrder = 3
+  group.add(redPts)
+  disp.push(red, redMat)
+
+  const hillMat = hill.material as MeshBasicMaterial
+  const hillBase = hillMat.color.clone()
+  return {
+    group,
+    update(t, light) {
+      redMat.opacity = Math.sin(t * 1.6 + 1) > 0 ? 1 : 0.1
+      hillMat.color.setRGB(hillBase.r + light.r * 0.04, hillBase.g + light.g * 0.04, hillBase.b + light.b * 0.04)
+    },
+    dispose() {
+      for (const d of disp) d.dispose()
     },
   }
 }

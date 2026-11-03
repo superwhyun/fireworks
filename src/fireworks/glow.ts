@@ -141,6 +141,7 @@ export class SpriteLayer {
     if (opts.mirror) {
       this.mirrorMaterial = this.material.clone()
       this.mirrorMaterial.uniforms.uMirror.value = 1
+      this.mirrorMaterial.depthTest = true
       this.mirror = new Points(this.geometry, this.mirrorMaterial)
       this.mirror.frustumCulled = false
       this.mirror.renderOrder = 2

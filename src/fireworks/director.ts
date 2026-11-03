@@ -17,10 +17,11 @@ import {
 } from './patterns'
 
 export type MusicMode = 'off' | 'reactive' | 'auto'
-export type CameraPreset = 'front' | 'close' | 'low' | 'aerial' | 'side'
+export type CameraPreset = 'front' | 'audience' | 'close' | 'low' | 'aerial' | 'side'
 
 export const CAMERA_PRESETS: Record<CameraPreset, { label: string; pos: [number, number, number]; target: [number, number, number] }> = {
   front: { label: '정면', pos: [0, 22, 280], target: [0, 95, -30] },
+  audience: { label: '관람석', pos: [0, 2.4, 330], target: [0, 80, -60] },
   close: { label: '근접', pos: [-30, 70, 70], target: [0, 115, -40] },
   low: { label: '수면', pos: [60, 3, 190], target: [0, 105, -30] },
   aerial: { label: '조감', pos: [0, 300, 230], target: [0, 70, -40] },
@@ -287,7 +288,7 @@ export class Director {
   // ------------------------------------------------------------ camera
 
   setCameraPreset(preset: CameraPreset): void {
-    const p = CAMERA_PRESETS[preset]
+    const p = preset === 'audience' ? this.environment.audience : CAMERA_PRESETS[preset]
     this.camAnim = {
       from: this.stage.camera.position.clone(),
       to: new Vector3(...p.pos),

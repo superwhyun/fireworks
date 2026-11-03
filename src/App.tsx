@@ -134,7 +134,7 @@ export default function App() {
         fire()
         return
       }
-      const presets: CameraPreset[] = ['front', 'close', 'low', 'aerial', 'side']
+      const presets: CameraPreset[] = ['front', 'audience', 'close', 'low', 'aerial', 'side']
       const n = Number(e.key)
       if (n >= 1 && n <= presets.length) {
         changeCamera(presets[n - 1])

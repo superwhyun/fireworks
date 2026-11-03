@@ -31,6 +31,7 @@ export interface Environment {
   update(t: number, camera: Vector3, light: Color): void
   setScene(id: SceneId): void
   readonly reflections: boolean
+  readonly audience: { pos: [number, number, number]; target: [number, number, number] }
   dispose(): void
 }
 
@@ -262,6 +263,9 @@ export function createEnvironment(glowTexture: Texture): Environment {
     setScene,
     get reflections() {
       return scenery?.reflections ?? true
+    },
+    get audience() {
+      return scenery?.audience ?? { pos: [0, 2.4, 330], target: [0, 80, -60] }
     },
     update(t, camera, light) {
       sky.position.copy(camera)

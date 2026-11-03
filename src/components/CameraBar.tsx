@@ -11,7 +11,7 @@ interface CameraBarProps {
   onHideUi: () => void
 }
 
-const ORDER: CameraPreset[] = ['front', 'close', 'low', 'aerial', 'side']
+const ORDER: CameraPreset[] = ['front', 'audience', 'close', 'low', 'aerial', 'side']
 
 export const CameraBar = memo(function CameraBar({
   preset,

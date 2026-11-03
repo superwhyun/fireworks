@@ -226,6 +226,7 @@ export class FireworksEngine {
       this.pending.push({ at: this.clock + o.delay, shell })
     } else {
       this.shells.push(shell)
+      this.muzzle(shell)
       this.onLaunch?.({ x: shell.x, z: shell.z, fuse: shell.fuse, whistle: shell.whistle })
     }
     return shell.fuse + (o.delay ?? 0)
@@ -263,6 +264,7 @@ export class FireworksEngine {
           const s = this.pending[i].shell
           this.pending.splice(i, 1)
           this.shells.push(s)
+          this.muzzle(s)
           this.onLaunch?.({ x: s.x, z: s.z, fuse: s.fuse, whistle: s.whistle })
         }
       }
@@ -647,6 +649,32 @@ export class FireworksEngine {
       col[k * 3 + 1] = l ? l.g : 0
       col[k * 3 + 2] = l ? l.b : 0
     }
+  }
+
+  /** lift-charge flash and a puff of sparks at the mortar mouth */
+  private muzzle(s: Shell): void {
+    const x = s.x
+    const z = s.z
+    this.glow.add({ x, y: 1.5, z, color: { r: 2.2, g: 1.3, b: 0.5 }, size: 14, intensity: 1.1, life: 0.12 })
+    this.glow.add({ x, y: 2, z, color: { r: 1, g: 0.5, b: 0.18 }, size: 40, intensity: 0.18, life: 0.5 })
+    for (let k = 0; k < 10; k++) {
+      spawnParticle(this.pool, {
+        x,
+        y: 1.2,
+        z,
+        vx: (Math.random() - 0.5) * 9,
+        vy: Math.random() * 14,
+        vz: (Math.random() - 0.5) * 9,
+        life: 0.15 + Math.random() * 0.3,
+        size: 0.9,
+        color: GOLD_RGB,
+        color2: EMBER_RGB,
+        gravity: 1,
+        drag: 3,
+        flags: F_EMBER,
+      })
+    }
+    this.smoke.add({ x, y: 3, z, vx: this.wind, vy: 1.5, vz: 0, color: { r: 0.08, g: 0.085, b: 0.1 }, size: 12, grow: 5, intensity: 0.08, life: 5 })
   }
 
   private flash(x: number, y: number, z: number, c: RGB, R: number, amount: number): void {

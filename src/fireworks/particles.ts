@@ -187,6 +187,8 @@ export function createPool(capacity: number): ParticlePool {
   })
   const mirrorMaterial = material.clone()
   mirrorMaterial.uniforms.uMirror.value = 1
+  // reflections are only visible over water: let land / banks occlude them
+  mirrorMaterial.depthTest = true
 
   const points = new Points(geometry, material)
   points.frustumCulled = false
@@ -213,6 +215,7 @@ export function createPool(capacity: number): ParticlePool {
   })
   const lineMirrorMaterial = lineMaterial.clone()
   lineMirrorMaterial.uniforms.uMirror.value = 1
+  lineMirrorMaterial.depthTest = true
   const lines = new LineSegments(lineGeometry, lineMaterial)
   lines.frustumCulled = false
   lines.renderOrder = 10
